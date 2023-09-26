@@ -4,6 +4,10 @@ import math
 
 
 class PositionalEncoding(nn.Module):
+    """
+    Positional encoding module for NeRF.
+    """
+
     def __init__(self, dim: int, num_freqs: int):
         super(PositionalEncoding, self).__init__()
         self.dim = dim
@@ -26,11 +30,14 @@ class PositionalEncoding(nn.Module):
         return x
 
 
-def hash_encoder(coords, log2_hashmap_size):
-    '''
-    coords: this function can process upto 7 dim coordinates
-    log2T:  logarithm of T w.r.t 2
-    '''
+def hash_encoder(coords, log2_hashmap_size) -> torch.Tensor:
+    """
+    Hashes the coordinates to a hashmap of size 2^log2_hashmap_size
+    :param coords: coordinates of each point in space. This function can process up to 7 dim
+    coordinates
+    :param log2_hashmap_size: log2 of the size of the hashmap
+    :return: the hashed coordinates as a tensor
+    """
     primes = [1, 2654435761, 805459861, 3674653429, 2097192037, 1434869437, 2165219737]
 
     xor_result = torch.zeros_like(coords)[..., 0]
@@ -41,10 +48,21 @@ def hash_encoder(coords, log2_hashmap_size):
 
 
 class HashEncoder(nn.Module):
+    """
+    Hash encoder module for NeRF.
+    """
 
     def __init__(self, bounding_box=(torch.tensor([-1., -1., -1.]), torch.tensor([1., 1., 1.])),
                  n_levels=16, n_features_per_level=2, log2_hashmap_size=19, base_resolution=16,
                  finest_resolution=512):
+        """
+        :param bounding_box: the bounding box of the scene
+        :param n_levels: the number of leves of the hash encoder
+        :param n_features_per_level: number of features per level
+        :param log2_hashmap_size: the log2 of the size of the hashmap
+        :param base_resolution: the base (minimum) resolution of the hash encoder
+        :param finest_resolution: the finest (maximum) resolution of the hash encoder
+        """
         super(HashEncoder, self).__init__()
         assert n_levels > 0
         assert n_features_per_level > 0
@@ -75,22 +93,23 @@ class HashEncoder(nn.Module):
         self.box_offsets = torch.tensor(
             [[[i, j, k] for i in [0, 1] for j in [0, 1] for k in [0, 1]]])
 
-
         box_min, box_max = bounding_box
         resolutions = [math.floor(self.base_resolution * self.b ** i) for i in range(n_levels)]
         self.resolutions = torch.tensor(resolutions)
-        self.grid_sizes = torch.cat([(box_max - box_min) / res for res in resolutions],-1)
+        self.grid_sizes = torch.cat([(box_max - box_min) / res for res in resolutions], -1)
 
     def get_voxel_vertices(self,
                            xyz: torch.Tensor,
                            level: int,
                            log2_hashmap_size: torch.Tensor) \
             -> tuple[: torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        '''
-        xyz: 3D coordinates of samples. B x 3
-        bounding_box: min and max x,y,z coordinates of object bbox
-        resolution: number of voxels per axis
-        '''
+        """
+        Gets the vertices of the voxels for the given coordinates and level.
+        :param xyz: the 3D coordinates of the points, usually bach size x 3
+        :param level: the level of the hash encoder
+        :param log2_hashmap_size: the log2 of the size of the hashmap
+        :return: a tuple of the min and max vertices of the voxels and the hashed voxel indices
+        """
         box_min, box_max = self.bounding_box
 
         # clip the points outside the bounding box
@@ -113,12 +132,15 @@ class HashEncoder(nn.Module):
                          voxel_min_vertex: torch.Tensor,
                          voxel_max_vertex: torch.Tensor,
                          voxel_embedds: torch.Tensor) -> torch.Tensor:
-        '''
-        x: B x 3
-        voxel_min_vertex: B x 3
-        voxel_max_vertex: B x 3
-        voxel_embedds: B x 8 x 2
-        '''
+        """
+        Trilinear interpolation of the given coordinates.
+        :param xyz: the 3D coordinates of the points, usually bach size x 3
+        :param voxel_min_vertex: minimum vertex of the voxels
+        :param voxel_max_vertex: maximum vertex of the voxels
+        :param voxel_embedds: embeddings of the voxels
+        :return:  the interpolated embeddings as a tensor
+        """
+
         # source: https://en.wikipedia.org/wiki/Trilinear_interpolation
         weights = (xyz - voxel_min_vertex) / (voxel_max_vertex - voxel_min_vertex)  # B x 3
 
@@ -143,11 +165,16 @@ class HashEncoder(nn.Module):
         return c
 
     def forward(self, xyz: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        # x is 3D point position: B x 3
+        """
+        Forward pass of the hash encoder.
+        :param xyz: the 3D coordinates of the points, usually bach size x 3
+        :return: a tuple of the embedded coordinates and a mask of the points that are on the
+        surface
+        """
         x_embedded_all = []
         if xyz.device != self.resolutions.device:
-            self.bounding_box= (self.bounding_box[0].to(xyz.device),
-                                self.bounding_box[1].to(xyz.device))
+            self.bounding_box = (self.bounding_box[0].to(xyz.device),
+                                 self.bounding_box[1].to(xyz.device))
             self.box_offsets = self.box_offsets.to(xyz.device)
             self.grid_sizes = self.grid_sizes.to(xyz.device)
             self.resolutions = self.resolutions.to(xyz.device)
@@ -170,7 +197,15 @@ class HashEncoder(nn.Module):
 
 
 class SphericalEncoder(nn.Module):
+    """
+    Spherical encoder module for NeRF. This is used to create the embeddings of the rays directions.
+    """
+
     def __init__(self, input_dim: int = 3, degree: int = 4):
+        """
+        :param input_dim: the dimension of the input
+        :param degree: the degree of the spherical harmonics
+        """
 
         super().__init__()
 
@@ -213,6 +248,11 @@ class SphericalEncoder(nn.Module):
         ]
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass of the spherical encoder.
+        :param input: usually a 3D direction
+        :return: the spherical harmonics of the input
+        """
 
         result = torch.empty((*input.shape[:-1], self.out_dim), dtype=input.dtype,
                              device=input.device)

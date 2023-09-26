@@ -38,6 +38,22 @@ def test_epoch(dataloader: torch.utils.data.DataLoader,
                global_step: int,
                profiler=None,
                tqdm_position: int = 0) -> float:
+    """
+    Test an epoch of the model
+    :param dataloader: the dataloader to test with
+    :param render: the render of the scene
+    :param num_samples: number of samples per ray
+    :param chunk_size: chunk size to process the data in parallel (decrease to avoid out of
+    memory errors)
+    :param summary_writer: the summary writter to store the logs
+    :param device: the device to use
+    :param dtype: the data type to use
+    :param current_epoch: the current epoch
+    :param global_step: the global step
+    :param profiler: the profiler to use, if any
+    :param tqdm_position: the position of the tqdm progress bar
+    :return: the mean mse of the epoch
+    """
     if global_step == 0:
         return 10000
     # model = model.eval()

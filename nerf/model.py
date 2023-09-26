@@ -8,10 +8,27 @@ from .encoders import HashEncoder, SphericalEncoder
 
 
 class NeRFAbstract(nn.Module):
+    """
+    Abstract class for NeRF. Used to test different models
+    """
+
     def __init__(self):
         super(NeRFAbstract, self).__init__()
 
-class NeRF(NeRFAbstract):
+    def forward(self, xyz_encoded, direction_encoded) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        :param xyz_encoded: encoded of the points
+        :param direction_encoded: encoder of the directions of the rays to the points
+        :return: a tuple with the predicted rgb color and the sigma (color density) per point and
+        direction
+        """
+        raise NotImplementedError
+
+
+class HashNeRF(NeRFAbstract):
+    """
+    HashNeRF model
+    """
 
     def __init__(self,
                  xyz_channels: int,
@@ -21,7 +38,16 @@ class NeRF(NeRFAbstract):
                  residual_layers: List[int] = [4],
                  output_rgb: int = 3,
                  output_sigma: int = 1):
-        super(NeRF, self).__init__()
+        """
+        :param xyz_channels: number of channels of the coordinates
+        :param d_channels: number of channels for the dimensions
+        :param layers: number of layers
+        :param channels: number of channels for the hidden layers
+        :param residual_layers: a list with the layers that will be residual
+        :param output_rgb: size of the output rgb
+        :param output_sigma: size of the output sigma (density of the color)
+        """
+        super(HashNeRF, self).__init__()
         assert layers > 2
         assert channels > 0
         self.layers = layers
@@ -57,7 +83,7 @@ class NeRF(NeRFAbstract):
                                         nn.Linear(channels // 2, output_rgb),
                                         nn.Sigmoid())
 
-    def forward(self, xyz_encoded, direction_encoded):
+    def forward(self, xyz_encoded, direction_encoded) -> tuple[torch.Tensor, torch.Tensor]:
         h = xyz_encoded
         h_residual = xyz_encoded
         for i in range(self.layers):
@@ -76,8 +102,11 @@ class NeRF(NeRFAbstract):
         return rgb, sigma
 
 
+class HashNeRFSmall(NeRFAbstract):
+    """
+    A smaller implementation of the HashNerf model
+    """
 
-class NeRFSmall(NeRFAbstract):
     def __init__(self,
                  input_ch: int, input_ch_views: int,
                  num_layers: int = 2,
@@ -86,7 +115,7 @@ class NeRFSmall(NeRFAbstract):
                  num_layers_color: int = 4,
                  hidden_dim_color: int = 64,
                  ):
-        super(NeRFSmall, self).__init__()
+        super(HashNeRFSmall, self).__init__()
 
         self.input_ch = input_ch
         self.input_ch_views = input_ch_views
@@ -132,7 +161,7 @@ class NeRFSmall(NeRFAbstract):
 
         self.color_net = nn.ModuleList(color_net)
 
-    def forward(self, xyz_encoded, direction_encoded):
+    def forward(self, xyz_encoded, direction_encoded) -> tuple[torch.Tensor, torch.Tensor]:
         input_pts = xyz_encoded
         input_views = direction_encoded
 
@@ -159,11 +188,20 @@ class NeRFSmall(NeRFAbstract):
 
 
 class Render(object):
+    """
+    Render class for NeRF. It is in charge of render the scene based on a coordinate and the
+    direction of the ray to that coordinate
+    """
 
     def __init__(self,
                  embedder_points: HashEncoder,
                  embedder_directions: SphericalEncoder,
                  nerf: NeRFAbstract):
+        """
+        :param embedder_points: Hash encoder for the coordinates
+        :param embedder_directions: Spherical encoder for the direction of the rays
+        :param nerf: the NeRF model to make the predictions of the colors and its density
+        """
         self.embedder_points = embedder_points
         self.embedder_directions = embedder_directions
         self.nerf = nerf
@@ -188,8 +226,22 @@ class Render(object):
 
         return rgb, depth, accumulated, entropy
 
-    def render_rays(self, rays_origin, rays_directions, near: float, far: float,
-                    num_samples: int, chunk_size: int, perturb: bool):
+    def render_rays(self, rays_origin:torch.Tensor, rays_directions:torch.Tensor, near: float,
+                    far: float, num_samples: int, chunk_size: int, perturb: bool) \
+        -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Render the rays
+
+        :param rays_origin: the point of origin of the rays
+        :param rays_directions: the direction of the rays
+        :param near: the closest point where the rays will be casted
+        :param far: the farthest point where the rays will be casted
+        :param num_samples: number of samples per ray
+        :param chunk_size: chunk size to process the data in parallel (decrease to avoid out of
+        memory errors)
+        :param perturb: if True, the samples will be perturbed (added random noise)
+        :return: a tuple with the rgb map, the depth map, the accumulated map and the entropy
+        """
         assert chunk_size % num_samples == 0, "Chunk size must be a multiple of num_samples"
 
         # near = near * torch.ones_like(rays_d[..., :1])
@@ -249,7 +301,18 @@ class Render(object):
 
         return rgb, depth, accumulated, entropy
 
-    def raw2outputs(self, rgb, sigma, z_vals, rays_d):
+    def raw2outputs(self, rgb: torch.Tensor, sigma: torch.Tensor, z_vals: torch.Tensor,
+                    rays_d: torch.Tensor) \
+            -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Transform the raw rgb and sigma predictions to an rgb map, a depth map and an 
+        accumulated map.
+        :param rgb: the rgb predictions of the model
+        :param sigma: the sigma predictions of the model
+        :param z_vals: the points where the predictions were made
+        :param rays_d: rays directions
+        :return: a tuple with the rgb map, the depth map, the accumulated map and the entropy
+        """
         dists = z_vals[..., 1:] - z_vals[..., :-1]
         init_dists = torch.Tensor([1e10]).to(rgb.device).expand(dists[..., :1].shape)
         dists = torch.cat([dists, init_dists], -1)

@@ -21,13 +21,19 @@ app = typer.Typer()
 
 
 class DatasetType(Enum):
+    """
+    Enum for dataset types: train, validation and test
+    """
     TRAIN = auto()
     TEST = auto()
     VAL = auto()
 
 
 @app.command()
-def download():
+def download() -> None:
+    """
+    Downloads example images from the foundational NeRF paper.
+    """
     print("Downloading example images...")
     urls = [
         "http://cseweb.ucsd.edu/~viscomp/projects/LF/papers/ECCV20/nerf/nerf_example_data.zip"
@@ -46,11 +52,11 @@ def download():
 
 def load_data(dataset_path: str, format: DataFormat,  white_bkgd: bool = True, factor: int = 8,
               spherify: bool = True, llffhold: int = 8, no_ndc: bool = True, half_res: bool = True,
-              testskip: int = 8, scannet_sceneID: str = "scene0000_00", shape: str = "armchair"):
+              testskip: int = 8, scannet_sceneID: str = "scene0000_00", shape: str = "armchair")\
+        -> Tuple[np.ndarray, dict, Tuple[int, int], float, Tuple[float, float]]:
     """
-    :param dataset_path:
-    :param format:
-    :param type:
+    :param dataset_path: the path of the dataset
+    :param format: the format of the dataset
     :param white_bkgd: set to render synthetic data on a white bkgd (always use for dvoxels)
     :param factor:  downsample factor for LLFF images
     :param spherify:  set for spherical 360 scenes
@@ -60,7 +66,8 @@ def load_data(dataset_path: str, format: DataFormat,  white_bkgd: bool = True, f
     :param testskip: will load 1/N images from test/val sets, useful for large datasets like deepvoxels
     :param scannet_sceneID:  sceneID to load from scannet
     :param shape: shape to load from deepvoxels. options : armchair / cube / greek / vase
-    :return:
+    :return: a tuple of the bounding box, the data, the height and width of the images,
+    the focal length and the near and far values
     """
     bounding_box = None
     K = None
@@ -165,6 +172,10 @@ def load_data(dataset_path: str, format: DataFormat,  white_bkgd: bool = True, f
 
 
 class CustomRaysDataset(Dataset):
+    """
+    Custom dataset for images. It contains all the rays (source and direction) and the rgb values
+    for each ray.
+    """
     def __init__(self, images, poses, height, width, focal_length, near, far, full_images=False):
         super().__init__()
         self.images = images
@@ -210,6 +221,13 @@ class CustomRaysDataset(Dataset):
 
 def get_datasets(dataset_path: str, format: DataFormat, batch_size: int) \
         -> Tuple[DataLoader, torch.Tensor]:
+    """
+    Gets a dataset from the given path and format.
+    :param dataset_path: path of the dataset
+    :param format: the format of the dataset
+    :param batch_size: the batch size you want the dataset to be
+    :return: a tuple of the dataset and the bounding box as a tensor
+    """
     bounding_box, data, (height, width), focal, (near, far) = load_data(dataset_path, format)
     data_loaders = {}
     for type in DatasetType:

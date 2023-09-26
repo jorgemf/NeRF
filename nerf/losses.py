@@ -3,8 +3,20 @@ from math import exp, log, floor, log10
 import torch
 from .encoders import hash_encoder
 
-def total_variation_loss(embeddings, min_resolution, max_resolution, level, log2_hashmap_size,
-                         n_levels=16):
+
+def total_variation_loss(embeddings: torch.Tensor, min_resolution: torch.Tensor,
+                         max_resolution: torch.Tensor, level: int, log2_hashmap_size: int,
+                         n_levels: int = 16) -> torch.Tensor:
+    """
+    Compute total variation loss for a given level of the network.
+    :param embeddings: the embeddings of the network
+    :param min_resolution: minimum resolution of the network
+    :param max_resolution: maximum resolution of the network
+    :param level: current level of the network
+    :param log2_hashmap_size: the log2 of the size of the hash map
+    :param n_levels: number of levels of the network
+    :return: the varational loss for the given level as a tensor
+    """
     # Get resolution
     b = exp((log(max_resolution) - log(min_resolution)) / (n_levels - 1))
     resolution = torch.tensor(floor(min_resolution * b ** level))
@@ -34,4 +46,9 @@ def total_variation_loss(embeddings, min_resolution, max_resolution, level, log2
     return (tv_x + tv_y + tv_z) / cube_size
 
 def mse2psnr(mse: float) -> float:
+    """
+    Convert MSE to PSNR
+    :param mse: mean square error
+    :return: the signal to noise ratio
+    """
     return -10 * log10(mse) / log(10.)

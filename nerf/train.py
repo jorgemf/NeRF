@@ -9,7 +9,7 @@ from torch.profiler import profile, ProfilerActivity
 from torch.profiler.profiler import tensorboard_trace_handler
 from .config import get_device, RUNS_DIR, DTYPE, DataFormat
 from .dataset import get_datasets, DatasetType
-from .model import NeRFSmall, NeRF, Render
+from .model import HashNeRFSmall, HashNeRF, Render
 from .encoders import HashEncoder, SphericalEncoder
 from .losses import total_variation_loss, mse2psnr
 from .test import test_epoch
@@ -17,9 +17,7 @@ from .test import test_epoch
 
 def train(dataset_path: str,
           format: DataFormat,
-          # batch_size: int = 16 * 1024,
           batch_size: int = 2 * 1024,
-          # chunk_size: int = 16 * 1024 * 1024,
           chunk_size: int = 1024,
           num_samples: int = 64,
           epochs: int = 3,
@@ -31,6 +29,24 @@ def train(dataset_path: str,
           perturb: bool = True,
           profiler: bool = False,
           experiment_dir: str = None) -> None:
+    """
+    Train the model
+    :param dataset_path: the path to the dataset
+    :param format: the format of the dataset
+    :param batch_size: the batch size
+    :param chunk_size: the chunk size to process the data in parallel (decrease to avoid out of
+    memory errors)
+    :param num_samples: number of samples per ray
+    :param epochs: number of total epochs
+    :param learning_rate: the initial learning rate
+    :param learning_rate_decay: the learning rate decay per epoch
+    :param finest_resolution: the finest resolution of the hash map
+    :param entropy_loss_weight: the weight of the entropy loss
+    :param tv_loss_weight: the weight of the total variation loss
+    :param perturb: if True, the samples will be perturbed (added random noise)
+    :param profiler: if True, the profiler will be used
+    :param experiment_dir: the directory where to store the logs and the models
+    """
     assert chunk_size % num_samples == 0, "Chunk size must be a multiple of num_samples"
     dtype = DTYPE
     if experiment_dir is None:
@@ -48,7 +64,7 @@ def train(dataset_path: str,
     embedder_points = HashEncoder(bounding_box, finest_resolution=finest_resolution).to(device)
     embedder_directions = SphericalEncoder().to(device)
     # nerf = NeRFSmall(embedder_points.out_dim, embedder_directions.out_dim).to(device)
-    nerf = NeRF(embedder_points.out_dim, embedder_directions.out_dim).to(device)
+    nerf = HashNeRF(embedder_points.out_dim, embedder_directions.out_dim).to(device)
     render = Render(embedder_points, embedder_directions, nerf)
 
     # optimizer = torch.optim.RAdam(model.parameters(), lr=learning_rate)
@@ -127,6 +143,24 @@ def epoch(dataloader: torch.utils.data.DataLoader,
           device: torch.device,
           dtype: torch.dtype,
           profiler: Optional[profile] = None) -> None:
+    """
+    Train for one epoch
+    :param dataloader: the dataloader
+    :param current_epoch: the current epoch
+    :param render: the render of the scene
+    :param num_samples: number of samples per ray
+    :param chunk_size: chunk size to process the data in parallel (decrease to avoid out of
+    memory errors)
+    :param optimizer: the optimizer
+    :param lr_scheduler: the learning rate scheduler
+    :param entropy_loss_weight: the weight of the entropy loss
+    :param tv_loss_weight:
+    :param perturb: if True, the samples will be perturbed (added random noise)
+    :param summary_writer: the summary writter to store the logs
+    :param device: the device to use
+    :param dtype: the data type to use
+    :param profiler: the profiler to use, if any
+    """
     # model = model.train()
     near = dataloader.dataset.near
     far = dataloader.dataset.far
